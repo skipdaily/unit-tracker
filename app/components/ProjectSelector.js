@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Search } from "lucide-react";
 
 export default function ProjectSelector({ onProjectSelect, apiToken }) {
@@ -10,15 +10,8 @@ export default function ProjectSelector({ onProjectSelect, apiToken }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [error, setError] = useState(null);
   
-  // Load all projects on component mount
-  useEffect(() => {
-    if (apiToken) {
-      fetchAllProjects();
-    }
-  }, [apiToken]);
-
   // Fetch all projects to allow for client-side filtering
-  const fetchAllProjects = async () => {
+  const fetchAllProjects = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     
@@ -61,7 +54,14 @@ export default function ProjectSelector({ onProjectSelect, apiToken }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [apiToken]);
+  
+  // Load all projects on component mount
+  useEffect(() => {
+    if (apiToken) {
+      fetchAllProjects();
+    }
+  }, [apiToken, fetchAllProjects]);
 
   // Helper function to format project data consistently
   const formatProjects = (projectsData) => {
@@ -200,7 +200,7 @@ export default function ProjectSelector({ onProjectSelect, apiToken }) {
             </div>
           ) : (
             <div className="py-4 text-center">
-              <p className="text-gray-600">No projects found matching "{filterTerm}"</p>
+              <p className="text-gray-600">No projects found matching &quot;{filterTerm}&quot;</p>
             </div>
           )}
         </div>

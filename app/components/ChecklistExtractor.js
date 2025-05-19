@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { CheckSquare, Square, ChevronDown, ChevronUp, Download, Printer, RefreshCw, X, Image } from "lucide-react";
 
 export default function ChecklistExtractor({ project, apiToken }) {
@@ -25,62 +25,170 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   
-  // Fetch checklists from CompanyCam API
-  useEffect(() => {
-    if (project && apiToken) {
-      // Reset all data when project changes to avoid showing data from previous projects
-      setChecklists([]);
-      setOverallStats({
-        totalTasks: 0,
-        completedTasks: 0,
-        completionPercentage: 0
-      });
-      setSelectedSection(null);
-      setSectionDetails([]);
-      setShowSectionModal(false);
-      
-      // Then fetch new data for the current project
-      fetchChecklists();
-    }
-  }, [project, apiToken]);
-  
-  // Calculate overall stats whenever checklists change
-  useEffect(() => {
-    let totalTasks = 0;
-    let completedTasks = 0;
+  // Process the checklist data from the API response
+  const processChecklistData = useCallback((apiData) => {
+    console.log("Processing API data for project:", project?.id, apiData);
     
-    checklists.forEach(checklist => {
-      // Add sectionless tasks
-      checklist.sectionlessTasks.forEach(task => {
-        totalTasks++;
-        if (task.completed) {
-          completedTasks++;
+    // Check if the API response has a data property (common for API responses)
+    const checklistsData = apiData.data || apiData;
+    
+    // Handle different possible response formats
+    let checklists = [];
+    if (Array.isArray(checklistsData)) {
+      // Filter to make sure we only process checklists for the current project
+      checklists = checklistsData.filter(cl => 
+        cl.project_id === project?.id || cl.project_id === project?.id?.toString()
+      );
+    } else if (checklistsData.checklists) {
+      checklists = checklistsData.checklists.filter(cl => 
+        cl.project_id === project?.id || cl.project_id === project?.id?.toString()
+      );
+    } else if (checklistsData.todos) {
+      checklists = checklistsData.todos.filter(cl => 
+        cl.project_id === project?.id || cl.project_id === project?.id?.toString()
+      );
+    } else {
+      console.warn("Unexpected API response format:", checklistsData);
+      checklists = [];
+    }
+    
+    console.log(`Filtered to ${checklists.length} checklists for project ${project?.id}`);
+    
+    return checklists.map(checklist => {
+      console.log("Processing checklist:", checklist);
+      
+      // Extract the raw ID for constructing the CompanyCam URL
+      const rawId = checklist.id;
+      
+      // Create both web and mobile deep links
+      const webUrl = `https://app.companycam.com/projects/${project?.id}/todos/${rawId}`;
+      const mobileDeepLink = `ccam://projects/${project?.id}`;
+      
+      // Extract sections
+      const sections = checklist.sections || [];
+      
+      // Handle tasks in different formats
+      let allTasks = [];
+      let tasksArray = [];
+      
+      // Try to get tasks using different possible property names
+      if (Array.isArray(checklist.tasks)) {
+        tasksArray = checklist.tasks;
+      } else if (Array.isArray(checklist.fields)) {
+        // Some APIs might still use "fields" terminology
+        tasksArray = checklist.fields.map(field => ({
+          ...field,
+          // Map field properties to task properties if needed
+          name: field.name || field.title,
+          section_id: field.section_id
+        }));
+      }
+      
+      // If sections have their own tasks array, collect those too
+      sections.forEach(section => {
+        if (Array.isArray(section.tasks)) {
+          // Map section tasks with section_id
+          const sectionTasks = section.tasks.map(task => ({
+            ...task,
+            section_id: section.id,
+            name: task.name || task.title
+          }));
+          tasksArray = [...tasksArray, ...sectionTasks];
         }
       });
       
-      // Add tasks from all sections
-      checklist.sections.forEach(section => {
-        section.tasks.forEach(task => {
-          totalTasks++;
-          if (task.completed) {
-            completedTasks++;
-          }
-        });
+      // Process tasks that don't belong to any section
+      const sectionlessTasks = tasksArray.filter(task => !task.section_id);
+      
+      // Also check for a dedicated sectionless_tasks array
+      if (Array.isArray(checklist.sectionless_tasks)) {
+        const mappedSectionlessTasks = checklist.sectionless_tasks.map(task => ({
+          ...task,
+          name: task.name || task.title
+        }));
+        sectionlessTasks.push(...mappedSectionlessTasks);
+      }
+      
+      // Process sections with their tasks
+      const processedSections = sections.map(section => {
+        // Find tasks that belong to this section
+        const sectionTasks = tasksArray.filter(task => 
+          task.section_id === section.id
+        );
+        
+        // Calculate section completion percentage
+        const completedTasksCount = sectionTasks.filter(task => task.completed_at).length;
+        const completionPercentage = sectionTasks.length > 0 
+          ? Math.round((completedTasksCount / sectionTasks.length) * 100) 
+          : 0;
+        
+        return {
+          id: section.id,
+          name: section.name || section.title || 'Unnamed Section',
+          expanded: false,
+          completionPercentage,
+          tasks: sectionTasks.map(task => ({
+            id: task.id,
+            text: task.name || task.title || task.description || 'Unnamed Task',
+            completed: !!task.completed_at,
+            notes: task.notes || task.description || '',
+            required: !!task.required,
+            photo_required: !!task.photo_required,
+            has_photos: (task.photos && task.photos.length > 0) || false,
+            photos: task.photos || [],
+            photo_count: task.photos ? task.photos.length : 0
+          }))
+        };
       });
+      
+      // Process tasks that don't belong to a section
+      const processedSectionlessTasks = sectionlessTasks.map(task => ({
+        id: task.id,
+        text: task.name || task.title || task.description || 'Unnamed Task',
+        completed: !!task.completed_at,
+        notes: task.notes || task.description || '',
+        required: !!task.required,
+        photo_required: !!task.photo_required,
+        has_photos: (task.photos && task.photos.length > 0) || false,
+        photos: task.photos || [],
+        photo_count: task.photos ? task.photos.length : 0
+      }));
+      
+      // Calculate overall completion percentage from API or calculate manually
+      let overallCompletionPercentage = 0;
+      
+      if (typeof checklist.completed_tasks_count === 'number' && typeof checklist.tasks_count === 'number' && checklist.tasks_count > 0) {
+        // Use API provided counts if available
+        overallCompletionPercentage = Math.round((checklist.completed_tasks_count / checklist.tasks_count) * 100);
+      } else {
+        // Calculate from processed tasks
+        const allTasks = [
+          ...processedSectionlessTasks,
+          ...processedSections.flatMap(section => section.tasks)
+        ];
+        
+        const completedAllTasksCount = allTasks.filter(task => task.completed).length;
+        overallCompletionPercentage = allTasks.length > 0 
+          ? Math.round((completedAllTasksCount / allTasks.length) * 100) 
+          : 0;
+      }
+      
+      return {
+        id: checklist.id,
+        name: checklist.name || checklist.title || 'Unnamed Checklist',
+        expanded: false,
+        completionPercentage: overallCompletionPercentage,
+        sections: processedSections,
+        sectionlessTasks: processedSectionlessTasks,
+        webUrl: webUrl,
+        mobileDeepLink: mobileDeepLink,
+        projectId: project?.id
+      };
     });
-    
-    const completionPercentage = totalTasks > 0 
-      ? Math.round((completedTasks / totalTasks) * 100) 
-      : 0;
-    
-    setOverallStats({
-      totalTasks,
-      completedTasks,
-      completionPercentage
-    });
-  }, [checklists]);
-
-  const fetchChecklists = async (forceFresh = false) => {
+  }, [project]);
+  
+  // Fetch checklists from the API
+  const fetchChecklists = useCallback(async (forceFresh = false) => {
     // Clear any previous error
     setError(null);
     setIsLoading(true);
@@ -190,65 +298,26 @@ export default function ChecklistExtractor({ project, apiToken }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [apiToken, project, cacheTimestamp, processChecklistData]);
   
-  // Process the checklist data from the API response
-  const processChecklistData = (apiData) => {
-    console.log("Processing API data for project:", project.id, apiData);
-    
-    // Check if the API response has a data property (common for API responses)
-    const checklistsData = apiData.data || apiData;
-    
-    // Handle different possible response formats
-    let checklists = [];
-    if (Array.isArray(checklistsData)) {
-      // Filter to make sure we only process checklists for the current project
-      checklists = checklistsData.filter(cl => 
-        cl.project_id === project.id || cl.project_id === project.id.toString()
-      );
-    } else if (checklistsData.checklists) {
-      checklists = checklistsData.checklists.filter(cl => 
-        cl.project_id === project.id || cl.project_id === project.id.toString()
-      );
-    } else if (checklistsData.todos) {
-      checklists = checklistsData.todos.filter(cl => 
-        cl.project_id === project.id || cl.project_id === project.id.toString()
-      );
-    } else {
-      console.warn("Unexpected API response format:", checklistsData);
-      checklists = [];
+  // Fetch checklists from CompanyCam API
+  useEffect(() => {
+    if (project && apiToken) {
+      // Reset all data when project changes to avoid showing data from previous projects
+      setChecklists([]);
+      setOverallStats({
+        totalTasks: 0,
+        completedTasks: 0,
+        completionPercentage: 0
+      });
+      setSelectedSection(null);
+      setSectionDetails([]);
+      setShowSectionModal(false);
+      
+      // Then fetch new data for the current project
+      fetchChecklists();
     }
-    
-    console.log(`Filtered to ${checklists.length} checklists for project ${project.id}`);
-    
-    return checklists.map(checklist => {
-      console.log("Processing checklist:", checklist);
-      
-      // Extract the raw ID for constructing the CompanyCam URL
-      const rawId = checklist.id;
-      
-      // Create both web and mobile deep links
-      const webUrl = `https://app.companycam.com/projects/${project.id}/todos/${rawId}`;
-      const mobileDeepLink = `ccam://projects/${project.id}`;
-      
-      // Extract sections
-      const sections = checklist.sections || [];
-      
-      // Handle tasks in different formats
-      let allTasks = [];
-      let tasksArray = [];
-      
-      // Try to get tasks using different possible property names
-      if (Array.isArray(checklist.tasks)) {
-        tasksArray = checklist.tasks;
-      } else if (Array.isArray(checklist.fields)) {
-        // Some APIs might still use "fields" terminology
-        tasksArray = checklist.fields.map(field => ({
-          ...field,
-          // Map field properties to task properties if needed
-          name: field.name || field.title,
-          section_id: field.section_id
-        }));
+  }, [project, apiToken, fetchChecklists]);
       }
       
       // If sections have their own tasks array, collect those too
@@ -1455,7 +1524,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
                         src={currentPhotos[currentPhotoIndex]?.large_url || 
                              currentPhotos[currentPhotoIndex]?.medium_url || 
                              currentPhotos[currentPhotoIndex]?.url}
-                        alt={`Photo ${currentPhotoIndex + 1}`}
+                        alt={`Project photo ${currentPhotoIndex + 1}`}
                         className="max-h-[60vh] max-w-full object-contain"
                         onError={(e) => {
                           console.error("Image failed to load:", e);
@@ -1498,7 +1567,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
                         >
                           <img 
                             src={photo.thumbnail_url || photo.small_url || photo.url} 
-                            alt={`Thumbnail ${index + 1}`}
+                            alt={`Thumbnail of project photo ${index + 1}`}
                             className="h-full w-full object-cover rounded"
                             onError={(e) => {
                               e.target.src = "https://via.placeholder.com/60x60?text=Thumb";
