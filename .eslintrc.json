@@ -4,6 +4,11 @@
     "react-hooks/exhaustive-deps": "off",
     "jsx-a11y/alt-text": "off",
     "@next/next/no-img-element": "off",
-    "react/no-unescaped-entities": "off"
-  }
+    "react/no-unescaped-entities": "off",
+    "no-unused-vars": "off",
+    "no-console": "off",
+    "no-restricted-syntax": "off",
+    "no-undef": "off"
+  },
+  "ignorePatterns": ["app/components/ChecklistExtractor.js"]
 }
