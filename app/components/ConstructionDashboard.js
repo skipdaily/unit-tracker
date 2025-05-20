@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import ProjectSelector from "./ProjectSelector";
-import ChecklistExtractor from "./ChecklistExtractor";
+import MinimalChecklist from "./MinimalChecklist";
 import ApiDebugger from "./ApiDebugger";
 
 export default function ConstructionDashboard() {
@@ -182,7 +182,7 @@ export default function ConstructionDashboard() {
       {apiConfigured ? (
         <>
           <ProjectSelector onProjectSelect={handleProjectSelect} apiToken={apiToken} />
-          <ChecklistExtractor project={selectedProject} apiToken={apiToken} />
+          <MinimalChecklist project={selectedProject} apiToken={apiToken} />
           {/* Add the API Debugger component for development purposes */}
           <ApiDebugger apiToken={apiToken} />
         </>
