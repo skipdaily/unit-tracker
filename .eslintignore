@@ -1,0 +1,4 @@
+.next/
+node_modules/
+app/components/ChecklistExtractor.js
+app/components/ProjectSelector.js
