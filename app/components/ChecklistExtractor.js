@@ -12,6 +12,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const [cacheTimestamp, setCacheTimestamp] = useState({});
   const [updatingFields, setUpdatingFields] = useState([]); // Track fields being updated
   const [cacheStatus, setCacheStatus] = useState('fresh'); // 'fresh', 'cached', or 'expired'
+  const [checklistFilter, setChecklistFilter] = useState('default'); // For checklist filtering
   const [overallStats, setOverallStats] = useState({
     totalTasks: 0,
     completedTasks: 0,
@@ -998,6 +999,24 @@ export default function ChecklistExtractor({ project, apiToken }) {
     }
   };
 
+  // Filter and sort checklists based on selected filter
+  const getFilteredChecklists = () => {
+    if (!checklists || checklists.length === 0) return [];
+    
+    const checklistsCopy = [...checklists];
+    
+    switch (checklistFilter) {
+      case 'name':
+        return checklistsCopy.sort((a, b) => a.name.localeCompare(b.name));
+      case 'completion-asc':
+        return checklistsCopy.sort((a, b) => a.completionPercentage - b.completionPercentage);
+      case 'completion-desc':
+        return checklistsCopy.sort((a, b) => b.completionPercentage - a.completionPercentage);
+      default:
+        return checklistsCopy;
+    }
+  };
+
   if (!project) {
     return (
       <div className="bg-white rounded-lg shadow-md p-6 text-center">
@@ -1223,6 +1242,18 @@ export default function ChecklistExtractor({ project, apiToken }) {
               </span>
             )}
             <div className="flex space-x-2">
+              <div className="mr-3">
+                <select
+                  value={checklistFilter}
+                  onChange={(e) => setChecklistFilter(e.target.value)}
+                  className="text-sm px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 border-none focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="default">Default Order</option>
+                  <option value="name">Sort by Name</option>
+                  <option value="completion-asc">Least Complete</option>
+                  <option value="completion-desc">Most Complete</option>
+                </select>
+              </div>
               {cacheStatus === 'cached' && (
                 <button 
                   onClick={() => fetchChecklists(true)} 
@@ -1256,7 +1287,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
           <p className="text-gray-600 text-center py-8">No checklists found for this project</p>
         ) : (
           <div className="space-y-4">
-            {checklists.map(checklist => (
+            {getFilteredChecklists().map(checklist => (
               <div key={checklist.id} id={`checklist-${checklist.id}`} className="border border-gray-200 rounded-lg overflow-hidden">
                 <div 
                   className="flex justify-between items-center p-4 bg-gray-100 cursor-pointer"
