@@ -13,6 +13,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const [updatingFields, setUpdatingFields] = useState([]); // Track fields being updated
   const [cacheStatus, setCacheStatus] = useState('fresh'); // 'fresh', 'cached', or 'expired'
   const [checklistFilter, setChecklistFilter] = useState('default'); // For checklist filtering
+  const [sectionFilter, setSectionFilter] = useState('default'); // For section filtering
   const [overallStats, setOverallStats] = useState({
     totalTasks: 0,
     completedTasks: 0,
@@ -757,8 +758,147 @@ export default function ChecklistExtractor({ project, apiToken }) {
     return 'bg-green-500';
   };
 
-  // Get all sections from all checklists for the summary view
+  // Modified getAllSections function to track completed checklists for each section
   const getAllSections = () => {
+    // Create a map to collect sections by name
+    const sectionsMap = new Map();
+    
+    checklists.forEach(checklist => {
+      // Process regular sections - group by section name
+      checklist.sections.forEach(section => {
+        const sectionName = section.name;
+        
+        if (!sectionsMap.has(sectionName)) {
+          sectionsMap.set(sectionName, {
+            name: sectionName,
+            totalTasks: 0,
+            completedTasks: 0,
+            checklists: new Set(),
+            checklistDetails: [], // Store per-checklist details
+            tasks: [], // Store all tasks from all checklists
+            completedChecklists: [] // Store names of checklists with all tasks completed
+          });
+        }
+        
+        const sectionData = sectionsMap.get(sectionName);
+        sectionData.checklists.add(checklist.name);
+        
+        // Add checklist-specific details
+        const completedTasksCount = section.tasks.filter(task => task.completed).length;
+        const totalTasksCount = section.tasks.length;
+        const completionPercentage = totalTasksCount > 0 
+          ? Math.round((completedTasksCount / totalTasksCount) * 100) 
+          : 0;
+        
+        // Check if all tasks in this section are completed for this checklist
+        const isFullyCompleted = totalTasksCount > 0 && completedTasksCount === totalTasksCount;
+        
+        // If fully completed, add checklist name to the completedChecklists array
+        if (isFullyCompleted) {
+          sectionData.completedChecklists.push(checklist.name);
+        }
+        
+        sectionData.checklistDetails.push({
+          checklistId: checklist.id,
+          checklistName: checklist.name,
+          completedTasks: completedTasksCount,
+          totalTasks: totalTasksCount,
+          completionPercentage,
+          isFullyCompleted
+        });
+        
+        // Count tasks in this section and add them to the tasks array
+        section.tasks.forEach(task => {
+          sectionData.totalTasks++;
+          if (task.completed) {
+            sectionData.completedTasks++;
+          }
+          
+          // Add task to the consolidated tasks list with checklist reference
+          sectionData.tasks.push({
+            ...task,
+            checklistId: checklist.id,
+            checklistName: checklist.name
+          });
+        });
+      });
+      
+      // Handle sectionless tasks - group them under "General Items"
+      if (checklist.sectionlessTasks.length > 0) {
+        const sectionName = "General Items";
+        
+        if (!sectionsMap.has(sectionName)) {
+          sectionsMap.set(sectionName, {
+            name: sectionName,
+            totalTasks: 0,
+            completedTasks: 0,
+            checklists: new Set(),
+            checklistDetails: [],
+            tasks: [] // Store all tasks from all checklists
+          });
+        }
+        
+        const sectionData = sectionsMap.get(sectionName);
+        sectionData.checklists.add(checklist.name);
+        
+        // Add checklist-specific details
+        const completedTasksCount = checklist.sectionlessTasks.filter(task => task.completed).length;
+        const totalTasksCount = checklist.sectionlessTasks.length;
+        const completionPercentage = totalTasksCount > 0 
+          ? Math.round((completedTasksCount / totalTasksCount) * 100) 
+          : 0;
+        
+        sectionData.checklistDetails.push({
+          checklistId: checklist.id,
+          checklistName: checklist.name,
+          completedTasks: completedTasksCount,
+          totalTasks: totalTasksCount,
+          completionPercentage
+        });
+        
+        // Count sectionless tasks and add them to the tasks array
+        checklist.sectionlessTasks.forEach(task => {
+          sectionData.totalTasks++;
+          if (task.completed) {
+            sectionData.completedTasks++;
+          }
+          
+          // Add task to the consolidated tasks list with checklist reference
+          sectionData.tasks.push({
+            ...task,
+            checklistId: checklist.id,
+            checklistName: checklist.name
+          });
+        });
+      }
+    });
+    
+    // Convert map to array and calculate percentages
+    const sectionsArray = Array.from(sectionsMap.entries()).map(([name, data]) => {
+      const completionPercentage = data.totalTasks > 0 
+        ? Math.round((data.completedTasks / data.totalTasks) * 100) 
+        : 0;
+      
+      return {
+        id: name, // Use name as ID since we're grouping by name
+        name: name,
+        checklistsCount: data.checklists.size,
+        checklistNames: Array.from(data.checklists).join(', '),
+        totalTasks: data.totalTasks,
+        completedTasks: data.completedTasks,
+        completionPercentage,
+        checklistDetails: data.checklistDetails,
+        tasks: data.tasks || [], // Include all tasks
+        completedChecklists: data.completedChecklists || [] // Include names of completed checklists
+      };
+    });
+    
+    // Sort sections by completion percentage (lowest first)
+    return sectionsArray.sort((a, b) => a.completionPercentage - b.completionPercentage);
+  };
+
+  // Get all sections from all checklists for the summary view
+  const getAllSectionsOld = () => {
     // Create a map to collect sections by name
     const sectionsMap = new Map();
     
@@ -1026,6 +1166,24 @@ export default function ChecklistExtractor({ project, apiToken }) {
         return checklistsCopy;
     }
   };
+  
+  // Get filtered and sorted sections based on the selected filter
+  const getFilteredSections = () => {
+    const sections = getAllSections();
+    
+    if (!sections || sections.length === 0) return [];
+    
+    switch (sectionFilter) {
+      case 'name':
+        return [...sections].sort((a, b) => a.name.localeCompare(b.name));
+      case 'completion-asc':
+        return [...sections].sort((a, b) => a.completionPercentage - b.completionPercentage);
+      case 'completion-desc':
+        return [...sections].sort((a, b) => b.completionPercentage - a.completionPercentage);
+      default:
+        return sections; // Default already sorts by completion (lowest first)
+    }
+  };
 
   if (!project) {
     return (
@@ -1105,14 +1263,27 @@ export default function ChecklistExtractor({ project, apiToken }) {
           
           {/* Section summary */}
           <div className="mt-6">
-            <h3 className="text-lg font-medium text-gray-700 mb-2">Section Progress</h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-medium text-gray-700">Section Progress</h3>
+              <div>
+                <select
+                  value={sectionFilter}
+                  onChange={(e) => setSectionFilter(e.target.value)}
+                  className="text-sm px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 border-none focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="default">Default Order</option>
+                  <option value="name">Sort by Name</option>
+                  <option value="completion-asc">Least Complete</option>
+                  <option value="completion-desc">Most Complete</option>
+                </select>
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {getAllSections().map(section => (
+              {getFilteredSections().map(section => (
                 <div key={section.id} className="border border-gray-200 rounded-md bg-gray-50">
                   <div 
                     className="p-3 hover:bg-gray-100 transition-colors cursor-pointer"
                     onClick={(e) => {
-                      // Allow propagation to continue
                       toggleSectionSummary(section.id);
                     }}
                   >
@@ -1125,6 +1296,11 @@ export default function ChecklistExtractor({ project, apiToken }) {
                             <span className="ml-1">(across {section.checklistsCount} checklists)</span>
                           }
                         </div>
+                        {section.completedChecklists.length > 0 && (
+                          <div className="text-xs text-green-600 mt-1">
+                            Completed in: {section.completedChecklists.join(', ')}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center">
                         <div className="font-medium text-sm mr-2">
@@ -1143,39 +1319,49 @@ export default function ChecklistExtractor({ project, apiToken }) {
                   
                   {expandedSectionSummaries[section.id] && (
                     <div className="px-3 pb-3 pt-1 border-t border-gray-200 bg-white">
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="text-xs font-medium text-gray-500">Completed in these checklists:</div>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSectionClick(section);
-                          }}
-                          className="text-xs px-2 py-1 bg-blue-50 text-blue-500 hover:bg-blue-100 rounded"
-                        >
-                          Show All Details
-                        </button>
-                      </div>
-                      <div className="space-y-2 max-h-40 overflow-y-auto">
-                        {section.checklistDetails.sort((a, b) => b.completionPercentage - a.completionPercentage).map(detail => (
-                          <div 
-                            key={detail.checklistId}
-                            className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                      {/* "Tasks in this section" removed */}
+                      
+                      <div className="mt-2">
+                        <div className="flex justify-between items-center mb-2">
+                          <div className="text-xs font-medium text-gray-500">Appears in these checklists:</div>
+                          <button 
                             onClick={(e) => {
                               e.stopPropagation();
-                              jumpToSection(detail.checklistId, section.name);
+                              handleSectionClick(section);
                             }}
+                            className="text-xs px-2 py-1 bg-blue-50 text-blue-500 hover:bg-blue-100 rounded"
                           >
-                            <div className="text-sm">{detail.checklistName}</div>
-                            <div className="flex items-center">
-                              <div className="text-xs text-gray-500 mr-2">
-                                {detail.completedTasks}/{detail.totalTasks}
+                            Show All Details
+                          </button>
+                        </div>
+                        <div className="space-y-2 max-h-40 overflow-y-auto">
+                          {section.checklistDetails.sort((a, b) => b.completionPercentage - a.completionPercentage).map(detail => (
+                            <div 
+                              key={detail.checklistId}
+                              className={`flex items-center justify-between p-2 rounded cursor-pointer hover:bg-gray-100 
+                               ${detail.isFullyCompleted ? 'bg-green-50' : 'bg-gray-50'}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                jumpToSection(detail.checklistId, section.name);
+                              }}
+                            >
+                              <div className="text-sm">
+                                {detail.checklistName}
+                                {detail.isFullyCompleted && 
+                                  <span className="ml-1 text-xs text-green-600">✓ Completed</span>
+                                }
                               </div>
-                              <div className="font-medium text-xs">
-                                {detail.completionPercentage}%
+                              <div className="flex items-center">
+                                <div className="text-xs text-gray-500 mr-2">
+                                  {detail.completedTasks}/{detail.totalTasks}
+                                </div>
+                                <div className="font-medium text-xs">
+                                  {detail.completionPercentage}%
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
