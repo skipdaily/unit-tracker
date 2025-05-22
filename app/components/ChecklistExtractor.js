@@ -25,6 +25,8 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const [currentPhotos, setCurrentPhotos] = useState([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
+  const [expandedSectionSummaries, setExpandedSectionSummaries] = useState({});
+  
   
   // Process the checklist data from the API response
   const processChecklistData = useCallback((apiData) => {
@@ -900,6 +902,14 @@ export default function ChecklistExtractor({ project, apiToken }) {
     setSectionDetails(sortedDetails);
   };
 
+  // Toggle section summary expansion
+  const toggleSectionSummary = (sectionId) => {
+    setExpandedSectionSummaries(prev => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
+  };
+
   // Jump to a specific checklist and expand/scroll to the section
   const jumpToSection = (checklistId, sectionName) => {
     // Set the checklist to expanded state
@@ -1098,31 +1108,77 @@ export default function ChecklistExtractor({ project, apiToken }) {
             <h3 className="text-lg font-medium text-gray-700 mb-2">Section Progress</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {getAllSections().map(section => (
-                <div 
-                  key={section.id} 
-                  className="border border-gray-200 rounded-md p-3 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
-                  onClick={() => handleSectionClick(section)}
-                >
-                  <div className="flex justify-between items-start mb-1">
-                    <div>
-                      <div className="font-medium text-gray-800">{section.name}</div>
-                      <div className="text-xs text-gray-600">
-                        {section.completedTasks} of {section.totalTasks} tasks completed
-                        {section.checklistsCount > 1 && 
-                          <span className="ml-1">(across {section.checklistsCount} checklists)</span>
-                        }
+                <div key={section.id} className="border border-gray-200 rounded-md bg-gray-50">
+                  <div 
+                    className="p-3 hover:bg-gray-100 transition-colors cursor-pointer"
+                    onClick={(e) => {
+                      // Allow propagation to continue
+                      toggleSectionSummary(section.id);
+                    }}
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <div>
+                        <div className="font-medium text-gray-800">{section.name}</div>
+                        <div className="text-xs text-gray-600">
+                          {section.completedTasks} of {section.totalTasks} tasks completed
+                          {section.checklistsCount > 1 && 
+                            <span className="ml-1">(across {section.checklistsCount} checklists)</span>
+                          }
+                        </div>
+                      </div>
+                      <div className="flex items-center">
+                        <div className="font-medium text-sm mr-2">
+                          {section.completionPercentage}%
+                        </div>
+                        {expandedSectionSummaries[section.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                       </div>
                     </div>
-                    <div className="font-medium text-sm">
-                      {section.completionPercentage}%
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full ${getProgressBarColor(section.completionPercentage)}`} 
+                        style={{ width: `${section.completionPercentage}%` }}
+                      ></div>
                     </div>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className={`h-2 rounded-full ${getProgressBarColor(section.completionPercentage)}`} 
-                      style={{ width: `${section.completionPercentage}%` }}
-                    ></div>
-                  </div>
+                  
+                  {expandedSectionSummaries[section.id] && (
+                    <div className="px-3 pb-3 pt-1 border-t border-gray-200 bg-white">
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="text-xs font-medium text-gray-500">Completed in these checklists:</div>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSectionClick(section);
+                          }}
+                          className="text-xs px-2 py-1 bg-blue-50 text-blue-500 hover:bg-blue-100 rounded"
+                        >
+                          Show All Details
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-40 overflow-y-auto">
+                        {section.checklistDetails.sort((a, b) => b.completionPercentage - a.completionPercentage).map(detail => (
+                          <div 
+                            key={detail.checklistId}
+                            className="flex items-center justify-between p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              jumpToSection(detail.checklistId, section.name);
+                            }}
+                          >
+                            <div className="text-sm">{detail.checklistName}</div>
+                            <div className="flex items-center">
+                              <div className="text-xs text-gray-500 mr-2">
+                                {detail.completedTasks}/{detail.totalTasks}
+                              </div>
+                              <div className="font-medium text-xs">
+                                {detail.completionPercentage}%
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
