@@ -257,7 +257,8 @@ export default function ChecklistExtractor({ project, apiToken }) {
     const now = new Date().getTime();
     const CACHE_TTL = 5 * 60 * 1000; // 5 minute cache
     
-    const cachedData = !forceFresh && localStorage.getItem(cacheKey);
+    // Safe localStorage access with checks for browser environment
+    const cachedData = !forceFresh && typeof window !== 'undefined' ? localStorage.getItem(cacheKey) : null;
     const cachedTime = cacheTimestamp[cacheKey] || 0;
     
     // Use cache if available and not expired
@@ -325,8 +326,10 @@ export default function ChecklistExtractor({ project, apiToken }) {
       
       // Save response to cache
       try {
-        localStorage.setItem(cacheKey, JSON.stringify(data));
-        setCacheTimestamp(prev => ({ ...prev, [cacheKey]: now }));
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(cacheKey, JSON.stringify(data));
+          setCacheTimestamp(prev => ({ ...prev, [cacheKey]: now }));
+        }
       } catch (cacheError) {
         console.warn("Failed to cache checklist data:", cacheError);
       }
@@ -581,6 +584,12 @@ export default function ChecklistExtractor({ project, apiToken }) {
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       
+      // Exit early if running on the server
+      if (typeof window === 'undefined' || typeof document === 'undefined') {
+        console.log("Cannot download CSV on server side");
+        return;
+      }
+      
       // Create a link and trigger download
       const link = document.createElement("a");
       link.setAttribute("href", url);
@@ -603,6 +612,12 @@ export default function ChecklistExtractor({ project, apiToken }) {
       
       if (!checklistToPrint) {
         setError("Checklist not found");
+        return;
+      }
+      
+      // Only execute window-related code on the client side
+      if (typeof window === 'undefined') {
+        console.log("Cannot print on server side");
         return;
       }
       
@@ -720,6 +735,12 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const handleSeePhotosClick = (e, checklist) => {
     e.stopPropagation();
     
+    // Exit early if running on the server
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+      console.log("Cannot open links on server side");
+      return;
+    }
+    
     // Try to detect if user is on mobile
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     
@@ -736,7 +757,9 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const clearCache = () => {
     try {
       const cacheKey = `checklists-${project.id}`;
-      localStorage.removeItem(cacheKey);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(cacheKey);
+      }
       setCacheTimestamp(prev => {
         const newTimestamps = {...prev};
         delete newTimestamps[cacheKey];
@@ -1075,13 +1098,15 @@ export default function ChecklistExtractor({ project, apiToken }) {
     // Close the modal
     setShowSectionModal(false);
     
-    // Find and scroll to the checklist element
-    setTimeout(() => {
-      const element = document.getElementById(`checklist-${checklistId}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 100);
+    // Find and scroll to the checklist element (client-side only)
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      setTimeout(() => {
+        const element = document.getElementById(`checklist-${checklistId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+    }
   };
 
   // Simplified photo viewer function that just displays project photos

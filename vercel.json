@@ -5,6 +5,7 @@
   "framework": "nextjs",
   "outputDirectory": ".next",
   "env": {
-    "NEXT_LINT_RUNTIME_ERROR": "false"
+    "NEXT_LINT_RUNTIME_ERROR": "false",
+    "NEXT_RUNTIME_NODE_EXECUTABLE": "system"
   }
 }

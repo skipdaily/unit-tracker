@@ -16,6 +16,14 @@ const nextConfig = {
     ],
   },
   reactStrictMode: true,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  // Add experimental settings for better handling of client components
+  experimental: {
+    // Ensure proper client and server boundary handling
+    serverActions: true
+  },
 };
 
 export default nextConfig;

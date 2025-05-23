@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from "react";
 import ProjectSelector from "./ProjectSelector";
-import ChecklistExtractor from "./ChecklistExtractor";
+import ChecklistExtractorWrapper from "./ChecklistExtractorWrapper";
 import ApiDebugger from "./ApiDebugger";
 
 export default function ConstructionDashboard() {
@@ -34,6 +34,22 @@ export default function ConstructionDashboard() {
     } else {
       setApiStatus("Invalid token");
     }
+  };
+  
+  // Disconnect from the API
+  const disconnectFromApi = () => {
+    // Remove stored tokens
+    localStorage.removeItem('companycamApiToken');
+    sessionStorage.removeItem('companycamApiToken');
+    
+    // Reset the application state
+    setApiConfigured(false);
+    setApiToken("");
+    setApiStatus("Not connected");
+    setSelectedProject(null);
+    setShowApiConfig(true);
+    
+    console.log("Disconnected from CompanyCam API");
   };
   
   // Validate the API token by making a test request
@@ -141,12 +157,19 @@ export default function ConstructionDashboard() {
           </div>
           <div className="flex items-center">
             <div className="text-sm mr-4 text-gray-600">CompanyCam API: <span className={apiStatus === "Error loading photos" ? "text-red-500" : "text-green-500"}>{apiStatus}</span></div>
-            {!apiConfigured && (
+            {!apiConfigured ? (
               <button 
                 onClick={() => setShowApiConfig(!showApiConfig)}
                 className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
               >
                 Connect API
+              </button>
+            ) : (
+              <button 
+                onClick={disconnectFromApi}
+                className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm"
+              >
+                Disconnect API
               </button>
             )}
           </div>
@@ -182,7 +205,7 @@ export default function ConstructionDashboard() {
       {apiConfigured ? (
         <>
           <ProjectSelector onProjectSelect={handleProjectSelect} apiToken={apiToken} />
-          <ChecklistExtractor project={selectedProject} apiToken={apiToken} />
+          <ChecklistExtractorWrapper project={selectedProject} apiToken={apiToken} />
           {/* Add the API Debugger component for development purposes */}
           <ApiDebugger apiToken={apiToken} />
         </>
