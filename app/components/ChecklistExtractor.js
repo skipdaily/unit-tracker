@@ -32,31 +32,23 @@ export default function ChecklistExtractor({ project, apiToken }) {
   
   // Helper function to extract photo URLs from CompanyCam API response
   const getPhotoUrl = (photo, type = 'web') => {
-    console.log('Getting photo URL for type:', type, 'from photo:', photo);
-    
     if (!photo) {
-      console.warn('Photo object is null or undefined');
       return null;
     }
     
     // Handle legacy format where URL might be directly on the photo object
     if (!photo.uris && photo.url) {
-      console.log('Using legacy photo.url format');
       return photo.url;
     }
     
     if (!photo.uris || !Array.isArray(photo.uris)) {
-      console.warn('Photo object missing uris array:', photo);
       return null;
     }
-    
-    console.log('Available uris:', photo.uris);
     
     // Find the URI with the requested type
     const uri = photo.uris.find(u => u.type === type);
     if (uri && (uri.url || uri.uri)) {
       const url = uri.url || uri.uri;
-      console.log(`Found ${type} URL:`, url);
       return url;
     }
     
@@ -72,20 +64,16 @@ export default function ChecklistExtractor({ project, apiToken }) {
       const fallbackUri = photo.uris.find(u => u.type === fallbackType);
       if (fallbackUri && (fallbackUri.url || fallbackUri.uri)) {
         const url = fallbackUri.url || fallbackUri.uri;
-        console.log(`Using fallback ${fallbackType} URL:`, url);
         return url;
       }
     }
     
-    console.warn('No valid photo URL found for type:', type, photo.uris);
     return null;
   };
   
   
   // Process the checklist data from the API response
   const processChecklistData = useCallback((apiData) => {
-    console.log("Processing API data for project:", project?.id, apiData);
-    
     // Check if the API response has a data property (common for API responses)
     const checklistsData = apiData.data || apiData;
     
@@ -444,7 +432,6 @@ export default function ChecklistExtractor({ project, apiToken }) {
       // Check sectionless tasks
       checklist.sectionlessTasks.forEach(task => {
         if ((task.photo_count > 0 || task.has_photos || task.photo_required) && !taskPhotos[task.id] && !loadingTaskPhotos[task.id]) {
-          console.log("Found sectionless task with photos:", task.id, "photo_count:", task.photo_count, "has_photos:", task.has_photos, "photo_required:", task.photo_required);
           tasksWithPhotos.push(task.id);
         }
       });
@@ -454,7 +441,6 @@ export default function ChecklistExtractor({ project, apiToken }) {
         if (section.expanded) {
           section.tasks.forEach(task => {
             if ((task.photo_count > 0 || task.has_photos || task.photo_required) && !taskPhotos[task.id] && !loadingTaskPhotos[task.id]) {
-              console.log("Found section task with photos:", task.id, "photo_count:", task.photo_count, "has_photos:", task.has_photos, "photo_required:", task.photo_required);
               tasksWithPhotos.push(task.id);
             }
           });
@@ -464,7 +450,6 @@ export default function ChecklistExtractor({ project, apiToken }) {
 
     // Fetch photos for tasks that need them
     if (tasksWithPhotos.length > 0) {
-      console.log("Fetching photos for tasks:", tasksWithPhotos);
       tasksWithPhotos.forEach(taskId => {
         fetchTaskPhotos(taskId);
       });
@@ -840,28 +825,6 @@ export default function ChecklistExtractor({ project, apiToken }) {
     } catch (err) {
       console.error("Error printing checklist:", err);
       setError("Failed to generate printable view");
-    }
-  };
-
-  // Helper function to handle "See Photos" click based on device
-  const handleSeePhotosClick = (e, checklist) => {
-    e.stopPropagation();
-    
-    // Exit early if running on the server
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-      console.log("Cannot open links on server side");
-      return;
-    }
-    
-    // Try to detect if user is on mobile
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      // Use mobile deep link on mobile devices
-      window.location.href = checklist.mobileDeepLink;
-    } else {
-      // Open web URL in new tab on desktop
-      window.open(checklist.webUrl, '_blank');
     }
   };
 
@@ -1286,8 +1249,6 @@ export default function ChecklistExtractor({ project, apiToken }) {
     setLoadingTaskPhotos(prev => ({ ...prev, [taskId]: true }));
     
     try {
-      console.log("Fetching photos for task:", taskId);
-      
       // Get all photos for the project (we'll filter by task if needed)
       const projectPhotosUrl = `https://api.companycam.com/v2/projects/${project.id}/photos`;
       
@@ -1339,9 +1300,9 @@ export default function ChecklistExtractor({ project, apiToken }) {
     return (
       <div className="mt-2">
         <div className="flex items-center space-x-2">
-          {/* Thumbnail display with navigation */}
+          {/* Thumbnail display with navigation - mobile optimized */}
           <div className="relative">
-            <div className="h-16 w-16 bg-gray-200 rounded overflow-hidden cursor-pointer"
+            <div className="h-16 w-16 bg-gray-200 rounded overflow-hidden cursor-pointer touch-manipulation"
                  onClick={() => {
                    setCurrentPhotos(photos);
                    setCurrentPhotoIndex(currentIndex);
@@ -1358,7 +1319,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
               />
             </div>
             
-            {/* Navigation arrows - only show if more than 1 photo */}
+            {/* Navigation arrows - mobile friendly with larger touch targets */}
             {photos.length > 1 && (
               <>
                 <button 
@@ -1366,7 +1327,8 @@ export default function ChecklistExtractor({ project, apiToken }) {
                     e.stopPropagation();
                     navigatePhoto('prev');
                   }}
-                  className="absolute -left-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-1 rounded-full hover:bg-gray-50 shadow-sm"
+                  className="absolute -left-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-2 rounded-full hover:bg-gray-50 shadow-sm touch-manipulation"
+                  style={{ minHeight: '32px', minWidth: '32px' }}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -1377,7 +1339,8 @@ export default function ChecklistExtractor({ project, apiToken }) {
                     e.stopPropagation();
                     navigatePhoto('next');
                   }}
-                  className="absolute -right-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-1 rounded-full hover:bg-gray-50 shadow-sm"
+                  className="absolute -right-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-2 rounded-full hover:bg-gray-50 shadow-sm touch-manipulation"
+                  style={{ minHeight: '32px', minWidth: '32px' }}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1387,16 +1350,16 @@ export default function ChecklistExtractor({ project, apiToken }) {
             )}
           </div>
           
-          {/* Photo count and click hint */}
+          {/* Photo count and click hint - mobile optimized */}
           <div className="text-xs text-gray-500">
             {photos.length > 1 ? `${currentIndex + 1}/${photos.length} photos` : '1 photo'}
-            <div className="text-xs text-blue-500 cursor-pointer hover:underline"
+            <div className="text-xs text-blue-500 cursor-pointer hover:underline touch-manipulation"
                  onClick={() => {
                    setCurrentPhotos(photos);
                    setCurrentPhotoIndex(currentIndex);
                    setPhotoModalOpen(true);
                  }}>
-              Click to view full size
+              Tap to view full size
             </div>
           </div>
         </div>
