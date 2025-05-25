@@ -26,6 +26,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const [currentPhotos, setCurrentPhotos] = useState([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
+  const [modalImageLoaded, setModalImageLoaded] = useState(false);
   const [expandedSectionSummaries, setExpandedSectionSummaries] = useState({});
   const [taskPhotos, setTaskPhotos] = useState({}); // Store photos for each task
   const [loadingTaskPhotos, setLoadingTaskPhotos] = useState({}); // Track loading state per task
@@ -455,6 +456,40 @@ export default function ChecklistExtractor({ project, apiToken }) {
       });
     }
   }, [checklists, taskPhotos, loadingTaskPhotos, apiToken, project]);
+
+  // Keyboard navigation for photo modal
+  useEffect(() => {
+    const handleKeyPress = (event) => {
+      if (!photoModalOpen) return;
+      
+      switch (event.key) {
+        case 'Escape':
+          setPhotoModalOpen(false);
+          break;
+        case 'ArrowLeft':
+          event.preventDefault();
+          navigatePhotos('prev');
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          navigatePhotos('next');
+          break;
+        default:
+          break;
+      }
+    };
+
+    if (photoModalOpen) {
+      document.addEventListener('keydown', handleKeyPress);
+      // Prevent body scroll when modal is open
+      document.body.style.overflow = 'hidden';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyPress);
+      document.body.style.overflow = 'unset';
+    };
+  }, [photoModalOpen, currentPhotos]);
 
   // Toggle checklist expansion
   const toggleChecklist = (id) => {
@@ -1282,83 +1317,47 @@ export default function ChecklistExtractor({ project, apiToken }) {
   
   // Inline photo carousel component
   const InlinePhotoCarousel = ({ taskId, photos, isLoading }) => {
-    const [currentIndex, setCurrentIndex] = useState(0);
-    
     // Don't show anything when loading or when there are no photos
     if (isLoading || !photos || photos.length === 0) {
       return null;
     }
     
-    const navigatePhoto = (direction) => {
-      if (direction === 'next') {
-        setCurrentIndex((prev) => (prev + 1) % photos.length);
-      } else {
-        setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
-      }
-    };
-    
     return (
       <div className="mt-2">
-        <div className="flex items-center space-x-2">
-          {/* Thumbnail display with navigation - mobile optimized */}
-          <div className="relative">
-            <div className="h-16 w-16 bg-gray-200 rounded overflow-hidden cursor-pointer touch-manipulation"
-                 onClick={() => {
-                   setCurrentPhotos(photos);
-                   setCurrentPhotoIndex(currentIndex);
-                   setPhotoModalOpen(true);
-                 }}>
-              <img 
-                src={getPhotoUrl(photos[currentIndex], 'thumbnail')}
-                alt={`Task photo ${currentIndex + 1}`}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  console.error("Inline thumbnail failed to load:", e);
-                  e.target.src = "https://via.placeholder.com/64x64?text=?";
-                }}
-              />
-            </div>
-            
-            {/* Navigation arrows - mobile friendly with larger touch targets */}
-            {photos.length > 1 && (
-              <>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigatePhoto('prev');
+        <div className="flex flex-col space-y-2">
+          {/* Horizontal scrollable thumbnail row */}
+          <div 
+            className="flex overflow-x-auto space-x-3 pb-2"
+            style={{ 
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#cbd5e1 #f1f5f9'
+            }}
+          >
+            {photos.map((photo, index) => (
+              <div 
+                key={photo.id || index}
+                className="flex-shrink-0 h-32 w-32 bg-gray-200 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 hover:shadow-lg transition-all duration-200"
+                onClick={() => openPhotoModal(photos, index)}
+              >
+                <img 
+                  src={getPhotoUrl(photo, 'thumbnail')}
+                  alt={`Task photo ${index + 1}`}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.src = "https://via.placeholder.com/228x228?text=?";
                   }}
-                  className="absolute -left-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-2 rounded-full hover:bg-gray-50 shadow-sm touch-manipulation"
-                  style={{ minHeight: '32px', minWidth: '32px' }}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                </button>
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigatePhoto('next');
-                  }}
-                  className="absolute -right-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-2 rounded-full hover:bg-gray-50 shadow-sm touch-manipulation"
-                  style={{ minHeight: '32px', minWidth: '32px' }}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              </>
-            )}
+                />
+              </div>
+            ))}
           </div>
           
-          {/* Photo count and click hint - mobile optimized */}
+          {/* Photo count and click hint */}
           <div className="text-xs text-gray-500">
-            {photos.length > 1 ? `${currentIndex + 1}/${photos.length} photos` : '1 photo'}
-            <div className="text-xs text-blue-500 cursor-pointer hover:underline touch-manipulation"
-                 onClick={() => {
-                   setCurrentPhotos(photos);
-                   setCurrentPhotoIndex(currentIndex);
-                   setPhotoModalOpen(true);
-                 }}>
+            {photos.length === 1 ? '1 photo' : `${photos.length} photos`}
+            <div 
+              className="text-xs text-blue-500 cursor-pointer hover:underline"
+              onClick={() => openPhotoModal(photos, 0)}
+            >
               Tap to view full size
             </div>
           </div>
@@ -1367,10 +1366,24 @@ export default function ChecklistExtractor({ project, apiToken }) {
     );
   };
 
-  // Navigate through photos in the carousel
+  // Simplified photo modal opening function
+  const openPhotoModal = (photos, index = 0) => {
+    // Simple approach - just set the state and open modal
+    setCurrentPhotos(photos);
+    setCurrentPhotoIndex(index);
+    setLoadingPhotos(false);
+    setModalImageLoaded(false);
+    
+    // Delay modal opening slightly to avoid flickering
+    setTimeout(() => {
+      setPhotoModalOpen(true);
+    }, 10);
+  };
+
+  // Simplified photo navigation function
   const navigatePhotos = (direction) => {
     if (!currentPhotos || currentPhotos.length === 0) return;
-    
+        
     if (direction === 'next') {
       setCurrentPhotoIndex((prev) => (prev + 1) % currentPhotos.length);
     } else {
@@ -1857,7 +1870,10 @@ export default function ChecklistExtractor({ project, apiToken }) {
                     
                     {/* Sections with Tasks */}
                     {checklist.sections.map(section => (
-                      <div key={section.id} className="mb-4 border-t pt-4">
+                      <div 
+                        key={section.id} 
+                        className="mb-4 border border-gray-200 rounded-lg pt-4 px-4 hover:shadow-lg transition-shadow"
+                      >
                         <div 
                           className="flex justify-between items-center cursor-pointer mb-2"
                           onClick={() => toggleSection(checklist.id, section.id)}
@@ -1935,133 +1951,71 @@ export default function ChecklistExtractor({ project, apiToken }) {
         )}
       </div>
       
-      {/* Photo Carousel Modal */}
+      {/* Photo Carousel Modal - Full Screen - Simplified Version */}
+     
       {photoModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
-            <div className="p-3 border-b flex justify-between items-center">
-              <h3 className="font-medium text-gray-800">Photos ({currentPhotoIndex + 1}/{currentPhotos.length})</h3>
-              <button 
-                onClick={() => setPhotoModalOpen(false)} 
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X size={20} />
-              </button>
+        <div className="fixed inset-0 z-50 bg-black" style={{ isolation: 'isolate' }}>
+          {/* Simple Header with Close Button */}
+          <div className="absolute top-0 left-0 right-0 z-10 flex justify-between items-center p-4">
+            <div className="text-white text-lg font-medium">
+              Photo {currentPhotoIndex + 1} of {currentPhotos.length}
             </div>
-            
-            <div className="flex-grow overflow-hidden relative">
-              {loadingPhotos ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-                </div>
-              ) : currentPhotos.length > 0 ? (
-                <>
-                  <div className="h-full flex items-center justify-center bg-gray-900 relative">
-                    {currentPhotos.length > 0 && currentPhotoIndex < currentPhotos.length && (
-                      <img 
-                        src={getPhotoUrl(currentPhotos[currentPhotoIndex], 'web')}
-                        alt={`Project photo ${currentPhotoIndex + 1}`}
-                        className="max-h-[60vh] max-w-full object-contain"
-                        onError={(e) => {
-                          console.error("Image failed to load:", e);
-                          console.error("Failed image src:", e.target.src);
-                          console.error("Photo object:", currentPhotos[currentPhotoIndex]);
-                          e.target.src = "https://via.placeholder.com/400x300?text=Image+Not+Available";
-                        }}
-                      />
-                    )}
-                    
-                    {/* Navigation buttons */}
-                    {currentPhotos.length > 1 && (
-                      <>
-                        <button 
-                          onClick={() => navigatePhotos('prev')}
-                          className="absolute left-2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                          </svg>
-                        </button>
-                        <button 
-                          onClick={() => navigatePhotos('next')}
-                          className="absolute right-2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-70"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  
-                  {/* Thumbnails */}
-                  {currentPhotos.length > 1 && (
-                    <div className="flex overflow-x-auto p-2 bg-gray-100 border-t">
-                      {currentPhotos.map((photo, index) => (
-                        <div 
-                          key={photo.id || index}
-                          className={`h-16 w-16 flex-shrink-0 mx-1 cursor-pointer rounded border-2 ${index === currentPhotoIndex ? 'border-blue-500' : 'border-transparent'}`}
-                          onClick={() => setCurrentPhotoIndex(index)}
-                        >
-                          <img 
-                            src={getPhotoUrl(photo, 'thumbnail')} 
-                            alt={`Thumbnail of project photo ${index + 1}`}
-                            className="h-full w-full object-cover rounded"
-                            onError={(e) => {
-                              e.target.src = "https://via.placeholder.com/60x60?text=Thumb";
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="flex items-center justify-center h-full py-10">
-                  <div className="text-center">
-                    <p className="text-gray-500 mb-2">No photos available</p>
-                    <button
-                      onClick={() => showTaskPhotos(null)}
-                      className="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            <div className="p-3 border-t">
-              {/* Action buttons */}
-              <div className="flex justify-between items-center">
-                <div>
-                  {currentPhotos.length > 0 && currentPhotoIndex < currentPhotos.length && currentPhotos[currentPhotoIndex]?.created_at && (
-                    <span className="text-sm text-gray-500">
-                      Taken: {new Date(currentPhotos[currentPhotoIndex].created_at).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-                <div className="space-x-2">
-                  {currentPhotos.length > 0 && currentPhotoIndex < currentPhotos.length && getPhotoUrl(currentPhotos[currentPhotoIndex], 'original') && (
-                    <a 
-                      href={getPhotoUrl(currentPhotos[currentPhotoIndex], 'original')}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
-                    >
-                      Open Full Size
-                    </a>
-                  )}
-                  <button
-                    onClick={() => setPhotoModalOpen(false)}
-                    className="px-3 py-1.5 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-sm"
-                  >
-                    Close
-                  </button>
-                </div>
+            <button 
+              onClick={() => setPhotoModalOpen(false)}
+              className="text-white bg-black bg-opacity-50 rounded-full p-2"
+            >
+              <X size={24} />
+            </button>
+          </div>
+          
+          {/* Simple Photo Display */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            {loadingPhotos ? (
+              <div className="text-white text-center">
+                <div className="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent mb-4 mx-auto"></div>
+                <p>Loading photo...</p>
+              </div>
+            ) : currentPhotos.length > 0 ? (
+              <img 
+                src={getPhotoUrl(currentPhotos[currentPhotoIndex], 'web')}
+                alt={`Photo ${currentPhotoIndex + 1}`}
+                className="max-h-screen max-w-screen-lg object-contain"
+                onLoad={() => setModalImageLoaded(true)}
+                onError={(e) => {
+                  e.target.src = "https://via.placeholder.com/800x600?text=Image+Not+Available";
+                  setModalImageLoaded(true);
+                }}
+              />
+            ) : (
+              <div className="text-white text-center">
+                <p>No photo available</p>
+              </div>
+            )}
+          </div>
+          
+          {/* Simple Navigation */}
+          {currentPhotos.length > 1 && (
+            <div className="absolute inset-x-0 bottom-0 p-4 flex justify-center">
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => navigatePhotos('prev')}
+                  className="bg-black bg-opacity-50 text-white p-2 rounded-full"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="94" height="94" viewBox="0 0 24 94" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => navigatePhotos('next')}
+                  className="bg-black bg-opacity-50 text-white p-2 rounded-full"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="94" height="94" viewBox="0 0 24 94" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                </button>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
       
