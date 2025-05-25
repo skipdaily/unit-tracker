@@ -27,6 +27,59 @@ export default function ChecklistExtractor({ project, apiToken }) {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [expandedSectionSummaries, setExpandedSectionSummaries] = useState({});
+  const [taskPhotos, setTaskPhotos] = useState({}); // Store photos for each task
+  const [loadingTaskPhotos, setLoadingTaskPhotos] = useState({}); // Track loading state per task
+  
+  // Helper function to extract photo URLs from CompanyCam API response
+  const getPhotoUrl = (photo, type = 'web') => {
+    console.log('Getting photo URL for type:', type, 'from photo:', photo);
+    
+    if (!photo) {
+      console.warn('Photo object is null or undefined');
+      return null;
+    }
+    
+    // Handle legacy format where URL might be directly on the photo object
+    if (!photo.uris && photo.url) {
+      console.log('Using legacy photo.url format');
+      return photo.url;
+    }
+    
+    if (!photo.uris || !Array.isArray(photo.uris)) {
+      console.warn('Photo object missing uris array:', photo);
+      return null;
+    }
+    
+    console.log('Available uris:', photo.uris);
+    
+    // Find the URI with the requested type
+    const uri = photo.uris.find(u => u.type === type);
+    if (uri && (uri.url || uri.uri)) {
+      const url = uri.url || uri.uri;
+      console.log(`Found ${type} URL:`, url);
+      return url;
+    }
+    
+    // If requested type not found, try fallbacks
+    const fallbackOrder = {
+      'original': ['original', 'web', 'thumbnail'],
+      'web': ['web', 'original', 'thumbnail'], 
+      'thumbnail': ['thumbnail', 'web', 'original']
+    };
+    
+    const fallbacks = fallbackOrder[type] || ['web', 'original', 'thumbnail'];
+    for (const fallbackType of fallbacks) {
+      const fallbackUri = photo.uris.find(u => u.type === fallbackType);
+      if (fallbackUri && (fallbackUri.url || fallbackUri.uri)) {
+        const url = fallbackUri.url || fallbackUri.uri;
+        console.log(`Using fallback ${fallbackType} URL:`, url);
+        return url;
+      }
+    }
+    
+    console.warn('No valid photo URL found for type:', type, photo.uris);
+    return null;
+  };
   
   
   // Process the checklist data from the API response
@@ -131,32 +184,38 @@ export default function ChecklistExtractor({ project, apiToken }) {
           name: section.name || section.title || 'Unnamed Section',
           expanded: false,
           completionPercentage,
-          tasks: sectionTasks.map(task => ({
-            id: task.id,
-            text: task.name || task.title || task.description || 'Unnamed Task',
-            completed: !!task.completed_at,
-            notes: task.notes || task.description || '',
-            required: !!task.required,
-            photo_required: !!task.photo_required,
-            has_photos: (task.photos && task.photos.length > 0) || false,
-            photos: task.photos || [],
-            photo_count: task.photos ? task.photos.length : 0
-          }))
+          tasks: sectionTasks.map(task => {
+            console.log("Processing section task:", task.id, "has photos:", task.photos, "photo_required:", task.photo_required);
+            return {
+              id: task.id,
+              text: task.name || task.title || task.description || 'Unnamed Task',
+              completed: !!task.completed_at,
+              notes: task.notes || task.description || '',
+              required: !!task.required,
+              photo_required: !!task.photo_required,
+              has_photos: (task.photos && task.photos.length > 0) || false,
+              photos: task.photos || [],
+              photo_count: task.photos ? task.photos.length : 0
+            };
+          })
         };
       });
       
       // Process tasks that don't belong to a section
-      const processedSectionlessTasks = sectionlessTasks.map(task => ({
-        id: task.id,
-        text: task.name || task.title || task.description || 'Unnamed Task',
-        completed: !!task.completed_at,
-        notes: task.notes || task.description || '',
-        required: !!task.required,
-        photo_required: !!task.photo_required,
-        has_photos: (task.photos && task.photos.length > 0) || false,
-        photos: task.photos || [],
-        photo_count: task.photos ? task.photos.length : 0
-      }));
+      const processedSectionlessTasks = sectionlessTasks.map(task => {
+        console.log("Processing sectionless task:", task.id, "has photos:", task.photos, "photo_required:", task.photo_required);
+        return {
+          id: task.id,
+          text: task.name || task.title || task.description || 'Unnamed Task',
+          completed: !!task.completed_at,
+          notes: task.notes || task.description || '',
+          required: !!task.required,
+          photo_required: !!task.photo_required,
+          has_photos: (task.photos && task.photos.length > 0) || false,
+          photos: task.photos || [],
+          photo_count: task.photos ? task.photos.length : 0
+        };
+      });
       
       // Calculate overall completion percentage from API or calculate manually
       let overallCompletionPercentage = 0;
@@ -374,6 +433,44 @@ export default function ChecklistExtractor({ project, apiToken }) {
     }
   }, [project, apiToken, fetchChecklists]);
 
+  // Automatically fetch photos for tasks with photos when checklists are loaded or expanded
+  useEffect(() => {
+    if (checklists.length === 0 || !apiToken || !project) return;
+
+    const tasksWithPhotos = [];
+    
+    // Collect all tasks that have photos from all checklists
+    checklists.forEach(checklist => {
+      // Check sectionless tasks
+      checklist.sectionlessTasks.forEach(task => {
+        if ((task.photo_count > 0 || task.has_photos || task.photo_required) && !taskPhotos[task.id] && !loadingTaskPhotos[task.id]) {
+          console.log("Found sectionless task with photos:", task.id, "photo_count:", task.photo_count, "has_photos:", task.has_photos, "photo_required:", task.photo_required);
+          tasksWithPhotos.push(task.id);
+        }
+      });
+      
+      // Check section tasks that are expanded
+      checklist.sections.forEach(section => {
+        if (section.expanded) {
+          section.tasks.forEach(task => {
+            if ((task.photo_count > 0 || task.has_photos || task.photo_required) && !taskPhotos[task.id] && !loadingTaskPhotos[task.id]) {
+              console.log("Found section task with photos:", task.id, "photo_count:", task.photo_count, "has_photos:", task.has_photos, "photo_required:", task.photo_required);
+              tasksWithPhotos.push(task.id);
+            }
+          });
+        }
+      });
+    });
+
+    // Fetch photos for tasks that need them
+    if (tasksWithPhotos.length > 0) {
+      console.log("Fetching photos for tasks:", tasksWithPhotos);
+      tasksWithPhotos.forEach(taskId => {
+        fetchTaskPhotos(taskId);
+      });
+    }
+  }, [checklists, taskPhotos, loadingTaskPhotos, apiToken, project]);
+
   // Toggle checklist expansion
   const toggleChecklist = (id) => {
     setChecklists(checklists.map(checklist => 
@@ -404,13 +501,21 @@ export default function ChecklistExtractor({ project, apiToken }) {
       if (checklist.id === checklistId) {
         // Update sectionless tasks
         const updatedSectionlessTasks = checklist.sectionlessTasks.map(task => 
-          task.id === taskId ? { ...task, completed: !isCompleted } : task
+          task.id === taskId ? { 
+            ...task, 
+            completed: !isCompleted,
+            completed_at: !isCompleted ? new Date().toISOString() : null 
+          } : task
         );
         
         // Update sectioned tasks
         const updatedSections = checklist.sections.map(section => {
           const updatedTasks = section.tasks.map(task => 
-            task.id === taskId ? { ...task, completed: !isCompleted } : task
+            task.id === taskId ? { 
+              ...task, 
+              completed: !isCompleted,
+              completed_at: !isCompleted ? new Date().toISOString() : null 
+            } : task
           );
           
           // Recalculate section completion percentage
@@ -449,6 +554,13 @@ export default function ChecklistExtractor({ project, apiToken }) {
     
     // Update UI immediately
     setChecklists(updatedChecklists);
+    
+    // Save to localStorage for the daily summary feature
+    try {
+      localStorage.setItem(`checklists_${project.id}`, JSON.stringify(updatedChecklists));
+    } catch (error) {
+      console.warn("Error storing checklists in localStorage:", error);
+    }
     
     // Then make API request
     try {
@@ -1148,7 +1260,9 @@ export default function ChecklistExtractor({ project, apiToken }) {
         throw new Error("No photos found for this project");
       }
       
-      console.log(`Found ${photos.length} photos`, photos[0]);
+      console.log(`Found ${photos.length} photos`);
+      console.log("First photo structure:", photos[0]);
+      console.log("Sample photo uris:", photos[0]?.uris);
       
       // Update state with photos and show the modal
       setCurrentPhotos(photos);
@@ -1162,7 +1276,134 @@ export default function ChecklistExtractor({ project, apiToken }) {
       setLoadingPhotos(false);
     }
   };
+
+  // Fetch photos for a specific task and store in state
+  const fetchTaskPhotos = async (taskId) => {
+    if (taskPhotos[taskId] || loadingTaskPhotos[taskId]) {
+      return; // Already loaded or loading
+    }
+
+    setLoadingTaskPhotos(prev => ({ ...prev, [taskId]: true }));
+    
+    try {
+      console.log("Fetching photos for task:", taskId);
+      
+      // Get all photos for the project (we'll filter by task if needed)
+      const projectPhotosUrl = `https://api.companycam.com/v2/projects/${project.id}/photos`;
+      
+      const response = await fetch(projectPhotosUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch photos: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      const photos = result.data || result;
+      
+      if (Array.isArray(photos) && photos.length > 0) {
+        // Store the first few photos for this task (limiting to avoid performance issues)
+        const taskPhotoData = photos.slice(0, 10); // Limit to 10 photos for performance
+        setTaskPhotos(prev => ({ ...prev, [taskId]: taskPhotoData }));
+      }
+    } catch (error) {
+      console.error("Error fetching task photos:", error);
+    } finally {
+      setLoadingTaskPhotos(prev => ({ ...prev, [taskId]: false }));
+    }
+  };
   
+  // Inline photo carousel component
+  const InlinePhotoCarousel = ({ taskId, photos, isLoading }) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+    
+    // Don't show anything when loading or when there are no photos
+    if (isLoading || !photos || photos.length === 0) {
+      return null;
+    }
+    
+    const navigatePhoto = (direction) => {
+      if (direction === 'next') {
+        setCurrentIndex((prev) => (prev + 1) % photos.length);
+      } else {
+        setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
+      }
+    };
+    
+    return (
+      <div className="mt-2">
+        <div className="flex items-center space-x-2">
+          {/* Thumbnail display with navigation */}
+          <div className="relative">
+            <div className="h-16 w-16 bg-gray-200 rounded overflow-hidden cursor-pointer"
+                 onClick={() => {
+                   setCurrentPhotos(photos);
+                   setCurrentPhotoIndex(currentIndex);
+                   setPhotoModalOpen(true);
+                 }}>
+              <img 
+                src={getPhotoUrl(photos[currentIndex], 'thumbnail')}
+                alt={`Task photo ${currentIndex + 1}`}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  console.error("Inline thumbnail failed to load:", e);
+                  e.target.src = "https://via.placeholder.com/64x64?text=?";
+                }}
+              />
+            </div>
+            
+            {/* Navigation arrows - only show if more than 1 photo */}
+            {photos.length > 1 && (
+              <>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigatePhoto('prev');
+                  }}
+                  className="absolute -left-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-1 rounded-full hover:bg-gray-50 shadow-sm"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigatePhoto('next');
+                  }}
+                  className="absolute -right-2 top-1/2 transform -translate-y-1/2 bg-white border border-gray-300 text-gray-600 p-1 rounded-full hover:bg-gray-50 shadow-sm"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+          
+          {/* Photo count and click hint */}
+          <div className="text-xs text-gray-500">
+            {photos.length > 1 ? `${currentIndex + 1}/${photos.length} photos` : '1 photo'}
+            <div className="text-xs text-blue-500 cursor-pointer hover:underline"
+                 onClick={() => {
+                   setCurrentPhotos(photos);
+                   setCurrentPhotoIndex(currentIndex);
+                   setPhotoModalOpen(true);
+                 }}>
+              Click to view full size
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Navigate through photos in the carousel
   const navigatePhotos = (direction) => {
     if (!currentPhotos || currentPhotos.length === 0) return;
@@ -1629,23 +1870,19 @@ export default function ChecklistExtractor({ project, apiToken }) {
                                 {task.notes && (
                                   <p className="text-sm text-gray-500 mt-1">{task.notes}</p>
                                 )}
-                                <div className="flex items-center mt-1">
+                                <div className="mt-1">
                                   {task.photo_required && (
-                                    <div className="text-xs text-blue-500 mr-2">
+                                    <div className="text-xs text-blue-500 mb-2">
                                       {task.has_photos ? 'Photos attached' : 'Photo required'}
                                     </div>
                                   )}
-                                  {task.photo_count > 0 && (
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        showTaskPhotos(task.id);
-                                      }}
-                                      className="flex items-center text-xs text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded px-2 py-1"
-                                    >
-                                      <Image size={12} className="mr-1" />
-                                      View Photos
-                                    </button>
+                                  {/* Show carousel only when photos are actually loaded */}
+                                  {taskPhotos[task.id] && taskPhotos[task.id].length > 0 && (
+                                    <InlinePhotoCarousel 
+                                      taskId={task.id}
+                                      photos={taskPhotos[task.id]}
+                                      isLoading={loadingTaskPhotos[task.id] || false}
+                                    />
                                   )}
                                 </div>
                               </div>
@@ -1705,23 +1942,19 @@ export default function ChecklistExtractor({ project, apiToken }) {
                                   {task.notes && (
                                     <p className="text-sm text-gray-500 mt-1">{task.notes}</p>
                                   )}
-                                  <div className="flex items-center mt-1">
+                                  <div className="mt-1">
                                     {task.photo_required && (
-                                      <div className="text-xs text-blue-500 mr-2">
+                                      <div className="text-xs text-blue-500 mb-2">
                                         {task.has_photos ? 'Photos attached' : 'Photo required'}
                                       </div>
                                     )}
-                                    {task.photo_count > 0 && (
-                                      <button 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          showTaskPhotos(task.id);
-                                        }}
-                                        className="flex items-center text-xs text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded px-2 py-1"
-                                      >
-                                        <Image size={12} className="mr-1" />
-                                        View Photos
-                                      </button>
+                                    {/* Show carousel only when photos are actually loaded */}
+                                    {taskPhotos[task.id] && taskPhotos[task.id].length > 0 && (
+                                      <InlinePhotoCarousel 
+                                        taskId={task.id}
+                                        photos={taskPhotos[task.id]}
+                                        isLoading={loadingTaskPhotos[task.id] || false}
+                                      />
                                     )}
                                   </div>
                                 </div>
@@ -1763,13 +1996,13 @@ export default function ChecklistExtractor({ project, apiToken }) {
                   <div className="h-full flex items-center justify-center bg-gray-900 relative">
                     {currentPhotos.length > 0 && currentPhotoIndex < currentPhotos.length && (
                       <img 
-                        src={currentPhotos[currentPhotoIndex]?.large_url || 
-                             currentPhotos[currentPhotoIndex]?.medium_url || 
-                             currentPhotos[currentPhotoIndex]?.url}
+                        src={getPhotoUrl(currentPhotos[currentPhotoIndex], 'web')}
                         alt={`Project photo ${currentPhotoIndex + 1}`}
                         className="max-h-[60vh] max-w-full object-contain"
                         onError={(e) => {
                           console.error("Image failed to load:", e);
+                          console.error("Failed image src:", e.target.src);
+                          console.error("Photo object:", currentPhotos[currentPhotoIndex]);
                           e.target.src = "https://via.placeholder.com/400x300?text=Image+Not+Available";
                         }}
                       />
@@ -1808,7 +2041,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
                           onClick={() => setCurrentPhotoIndex(index)}
                         >
                           <img 
-                            src={photo.thumbnail_url || photo.small_url || photo.url} 
+                            src={getPhotoUrl(photo, 'thumbnail')} 
                             alt={`Thumbnail of project photo ${index + 1}`}
                             className="h-full w-full object-cover rounded"
                             onError={(e) => {
@@ -1846,9 +2079,9 @@ export default function ChecklistExtractor({ project, apiToken }) {
                   )}
                 </div>
                 <div className="space-x-2">
-                  {currentPhotos.length > 0 && currentPhotoIndex < currentPhotos.length && currentPhotos[currentPhotoIndex]?.url && (
+                  {currentPhotos.length > 0 && currentPhotoIndex < currentPhotos.length && getPhotoUrl(currentPhotos[currentPhotoIndex], 'original') && (
                     <a 
-                      href={currentPhotos[currentPhotoIndex].url}
+                      href={getPhotoUrl(currentPhotos[currentPhotoIndex], 'original')}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
