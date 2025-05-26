@@ -1522,7 +1522,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {getFilteredSections().map(section => (
-                <div key={section.id} className="border border-gray-200 rounded-md bg-gray-50">
+                <div key={section.id} className="border border-gray-200 rounded-md bg-gray-50 bg-opacity-75">
                   <div 
                     className="p-3 hover:bg-gray-100 transition-colors cursor-pointer"
                     onClick={(e) => {
@@ -1872,7 +1872,7 @@ export default function ChecklistExtractor({ project, apiToken }) {
                     {checklist.sections.map(section => (
                       <div 
                         key={section.id} 
-                        className="mb-4 border border-gray-200 rounded-lg pt-4 px-4 hover:shadow-lg transition-shadow"
+                        className="mb-4 border border-gray-200 rounded-lg bg-gray-50 bg-opacity-75 pt-4 px-4 hover:shadow-lg transition-shadow"
                       >
                         <div 
                           className="flex justify-between items-center cursor-pointer mb-2"
